@@ -5,11 +5,14 @@ import org.apache.calcite.schema.Function;
 import org.apache.calcite.schema.Schema;
 import org.apache.calcite.schema.Table;
 import org.apache.calcite.schema.impl.AbstractSchema;
+import org.apache.calcite.util.Source;
+import org.apache.calcite.util.Sources;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * @author tiny
@@ -20,7 +23,7 @@ public class CsvSchema extends AbstractSchema {
 
     private final Path dirPath;
 
-    private final Map<String, Table> tables;
+    private Map<String, Table> tables;
 
     public CsvSchema(String name, Path dirPath) {
         this.name = name;
@@ -31,24 +34,22 @@ public class CsvSchema extends AbstractSchema {
     @Override
     protected Map<String, Table> getTableMap() {
         if (tables.size() == 0) {
-            loadTables();
+            tables = loadTables();
         }
         return tables;
     }
 
-    private void loadTables() {
-        Util.silentException(Files::list, dirPath)
-                .filter(path -> !path.toFile().isDirectory())
-                .forEach(path -> {
-                    String name = path.getFileName().toString();
-                    Util.silentException(Files::lines, path)
-                            .limit(1)
-                            .forEach(s -> {
-                                s.split(",");
-                            });
+    private Map<String, Table> loadTables() {
+        return Util.silentException(Files::list, dirPath)
+                .map(Path::toFile)
+                .filter(file -> !file.isDirectory())
+                .filter(file -> file.getName().endsWith(".csv"))
+                .collect(Collectors.toMap(file -> file.getName().replace(".csv", ""),
+                        file -> newTable(Sources.of(file))));
+    }
 
-                });
-
+    private CsvTable newTable(Source source) {
+        return new CsvFilterableTable(source, null);
     }
 
     @Override

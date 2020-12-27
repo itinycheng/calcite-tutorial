@@ -1,5 +1,6 @@
 package com.tiny.calcite.csv;
 
+import com.tiny.calcite.csv.adapter.CsvDataTypeSystem;
 import com.tiny.calcite.csv.adapter.ViewExpanderImpl;
 import com.tiny.calcite.csv.util.CalciteUtil;
 import org.apache.calcite.DataContext;
@@ -60,7 +61,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class SqlQuery {
 
     public static void main(String[] args) throws Exception {
-        String sql = "select EMPNO, JOINTIME from CSV.`DATE` where EMPNO <= 160";
+        String sql = "select t.EMPNO as emp, t.JOINTIME from CSV.`DATE` t where t.EMPNO <= 160";
         // "select T1.EMPNO from CSV.\"DATE\" AS T1, CSV.\"LONG_EMPS\" AS T2 "
         // + "where T1.EMPNO = T2.EMPNO AND T1.EMPNO <= 160";
         // sql parser
@@ -74,7 +75,7 @@ public class SqlQuery {
         Path csvDir = Paths.get("csv-demo/src/main/resources/csv");
         SchemaPlus rootSchema = CalciteUtil.createRootSchema(csvDir);
         final FrameworkConfig frameworkConfig = CalciteUtil.getFrameworkConfig(rootSchema, parserConfig);
-        JavaTypeFactoryImpl factory = new JavaTypeFactoryImpl(RelDataTypeSystem.DEFAULT);
+        JavaTypeFactoryImpl factory = new JavaTypeFactoryImpl(new CsvDataTypeSystem());
         CalciteCatalogReader calciteCatalogReader = CalciteUtil.getCatalogReader(rootSchema, factory);
         SqlValidator validator = SqlValidatorUtil.newValidator(frameworkConfig.getOperatorTable(),
                 calciteCatalogReader,
