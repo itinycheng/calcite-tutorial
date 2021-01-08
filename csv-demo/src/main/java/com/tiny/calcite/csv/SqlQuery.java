@@ -1,13 +1,13 @@
 package com.tiny.calcite.csv;
 
+import com.tiny.calcite.csv.adapter.CsvDataTypeSystem;
+import com.tiny.calcite.csv.adapter.ViewExpanderImpl;
 import com.tiny.calcite.csv.util.CalciteUtil;
 import org.apache.calcite.DataContext;
 import org.apache.calcite.adapter.enumerable.EnumerableConvention;
 import org.apache.calcite.adapter.enumerable.EnumerableInterpretable;
 import org.apache.calcite.adapter.enumerable.EnumerableRel;
 import org.apache.calcite.adapter.java.JavaTypeFactory;
-import org.apache.calcite.config.CalciteConnectionConfigImpl;
-import org.apache.calcite.jdbc.CalciteSchema;
 import org.apache.calcite.jdbc.JavaTypeFactoryImpl;
 import org.apache.calcite.linq4j.Enumerable;
 import org.apache.calcite.linq4j.EnumerableDefaults;
@@ -25,7 +25,6 @@ import org.apache.calcite.plan.hep.HepProgramBuilder;
 import org.apache.calcite.plan.volcano.VolcanoPlanner;
 import org.apache.calcite.prepare.CalciteCatalogReader;
 import org.apache.calcite.rel.RelCollationTraitDef;
-import org.apache.calcite.rel.RelDistributionTraitDef;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.RelRoot;
 import org.apache.calcite.rel.metadata.DefaultRelMetadataProvider;
@@ -35,7 +34,6 @@ import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.runtime.Bindable;
 import org.apache.calcite.schema.SchemaPlus;
 import org.apache.calcite.sql.SqlNode;
-import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.apache.calcite.sql.parser.SqlParser;
 import org.apache.calcite.sql.validate.SqlConformanceEnum;
 import org.apache.calcite.sql.validate.SqlValidator;
@@ -43,14 +41,14 @@ import org.apache.calcite.sql.validate.SqlValidatorUtil;
 import org.apache.calcite.sql2rel.RelDecorrelator;
 import org.apache.calcite.sql2rel.SqlToRelConverter;
 import org.apache.calcite.tools.FrameworkConfig;
-import org.apache.calcite.tools.Frameworks;
 import org.apache.calcite.tools.RelBuilder;
 
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -63,17 +61,29 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class SqlQuery {
 
     public static void main(String[] args) throws Exception {
-        SchemaPlus rootSchema = CalciteUtil.registerRootSchema();
-
-        final FrameworkConfig fromworkConfig = Frameworks.newConfigBuilder()
-                .parserConfig(SqlParser.Config.DEFAULT)
-                .defaultSchema(rootSchema)
-                .traitDefs(ConventionTraitDef.INSTANCE, RelDistributionTraitDef.INSTANCE)
-                .build();
-
-        String sql = "select EMPNO, JOINTIME from CSV.\"DATE\" where EMPNO <= 160";
+        String sql = "select abs(t.EMPNO) as square_emp_no, t.JOINTIME from CSV.`DATE` t where abs(t.EMPNO) <= 160";
         // "select T1.EMPNO from CSV.\"DATE\" AS T1, CSV.\"LONG_EMPS\" AS T2 "
         // + "where T1.EMPNO = T2.EMPNO AND T1.EMPNO <= 160";
+        // sql parser
+        SqlParser.Config parserConfig = CalciteUtil.getSqlParserConfig();
+        SqlParser parser = SqlParser.create(sql, parserConfig);
+        SqlNode parsed = parser.parseStmt();
+        System.out.println("-----------------------------------------------------------");
+        System.out.println("The SqlNode after parsed is:\n " + parsed.toString());
+
+        // sql validate
+        Path csvDir = Paths.get("csv-demo/src/main/resources/csv");
+        SchemaPlus rootSchema = CalciteUtil.createRootSchema(csvDir);
+        final FrameworkConfig frameworkConfig = CalciteUtil.getFrameworkConfig(rootSchema, parserConfig);
+        JavaTypeFactoryImpl factory = new JavaTypeFactoryImpl(new CsvDataTypeSystem());
+        CalciteCatalogReader calciteCatalogReader = CalciteUtil.getCatalogReader(rootSchema, factory);
+        SqlValidator validator = SqlValidatorUtil.newValidator(frameworkConfig.getOperatorTable(),
+                calciteCatalogReader,
+                calciteCatalogReader.getTypeFactory(),
+                CalciteUtil.conformance(frameworkConfig));
+        SqlNode validated = validator.validate(parsed);
+        System.out.println("-----------------------------------------------------------");
+        System.out.println("The SqlNode after validated is:\n " + validated.toString());
 
         // use VolcanoPlanner
         VolcanoPlanner planner = new VolcanoPlanner();
@@ -82,39 +92,19 @@ public class SqlQuery {
         // add rules
         RelOptUtil.registerDefaultRules(planner, true, false);
 
-        JavaTypeFactoryImpl factory = new JavaTypeFactoryImpl(RelDataTypeSystem.DEFAULT);
-        // sql parser
-        SqlParser parser = SqlParser.create(sql, SqlParser.Config.DEFAULT);
-        SqlNode parsed = parser.parseStmt();
-        System.out.println("-----------------------------------------------------------");
-        System.out.println("The SqlNode after parsed is:\n " + parsed.toString());
-
-        CalciteCatalogReader calciteCatalogReader = new CalciteCatalogReader(
-                CalciteSchema.from(rootSchema),
-                CalciteSchema.from(rootSchema).path(null),
-                factory,
-                new CalciteConnectionConfigImpl(new Properties()));
-
-        // sql validate
-        SqlValidator validator = SqlValidatorUtil.newValidator(SqlStdOperatorTable.instance(), calciteCatalogReader,
-                factory, CalciteUtil.conformance(fromworkConfig));
-        SqlNode validated = validator.validate(parsed);
-        System.out.println("-----------------------------------------------------------");
-        System.out.println("The SqlNode after validated is:\n " + validated.toString());
-
-        final RexBuilder rexBuilder = CalciteUtil.createRexBuilder(factory);
+        final RexBuilder rexBuilder = CalciteUtil.createRexBuilder(calciteCatalogReader.getTypeFactory());
         final RelOptCluster cluster = RelOptCluster.create(planner, rexBuilder);
 
         // init SqlToRelConverter config
         final SqlToRelConverter.Config config = SqlToRelConverter.configBuilder()
-                .withConfig(fromworkConfig.getSqlToRelConverterConfig())
+                .withConfig(frameworkConfig.getSqlToRelConverterConfig())
                 .withTrimUnusedFields(false)
                 .withConvertTableAccess(false)
                 .build();
 
         // SqlNode toRelNode
-        final SqlToRelConverter sqlToRelConverter = new SqlToRelConverter(new CalciteUtil.ViewExpanderImpl(),
-                validator, calciteCatalogReader, cluster, fromworkConfig.getConvertletTable(), config);
+        final SqlToRelConverter sqlToRelConverter = new SqlToRelConverter(new ViewExpanderImpl(),
+                validator, calciteCatalogReader, cluster, frameworkConfig.getConvertletTable(), config);
         RelRoot root = sqlToRelConverter.convertQuery(validated, false, true);
 
         //tiny note: replace LogicalTableScan to CsvTableScan, impl this by invoke CsvTranslatableTable.toRel
