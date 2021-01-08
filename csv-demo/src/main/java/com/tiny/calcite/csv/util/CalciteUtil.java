@@ -6,10 +6,11 @@ import com.tiny.calcite.csv.adapter.CsvFunctionOperatorTable;
 import com.tiny.calcite.csv.adapter.CsvSchemaFactory;
 import com.tiny.calcite.csv.adapter.ExpressionReducer;
 import com.tiny.calcite.csv.adapter.ViewExpanderImpl;
+import org.apache.calcite.avatica.util.Casing;
+import org.apache.calcite.avatica.util.Quoting;
 import org.apache.calcite.config.CalciteConnectionConfig;
 import org.apache.calcite.config.CalciteConnectionConfigImpl;
 import org.apache.calcite.config.CalciteConnectionProperty;
-import org.apache.calcite.config.Lex;
 import org.apache.calcite.jdbc.CalciteSchema;
 import org.apache.calcite.plan.Context;
 import org.apache.calcite.plan.Contexts;
@@ -79,20 +80,25 @@ public class CalciteUtil {
                 .setCaseSensitive(false)
                 .setConformance(SqlConformanceEnum.MYSQL_5)
                 .setIdentifierMaxLength(SqlParser.DEFAULT_IDENTIFIER_MAX_LENGTH)
-                .setLex(Lex.MYSQL)
+                .setQuoting(Quoting.BACK_TICK)
+                .setQuotedCasing(Casing.TO_UPPER)
+                .setUnquotedCasing(Casing.TO_UPPER)
+                .setCaseSensitive(false)
                 .setParserFactory(SqlParserImpl.FACTORY)
                 .build();
     }
 
     public static SqlOperatorTable getSqlOperatorTable() {
         return ChainedSqlOperatorTable.of(SqlStdOperatorTable.instance(),
-                new CsvFunctionOperatorTable());
+                CsvFunctionOperatorTable.instance());
     }
 
     public static SchemaPlus createRootSchema(Path path) {
         if (!Files.exists(path)) {
             throw new RuntimeException("path: " + path + "not found.");
         }
+        // NOTE - TINY:  create an instance of CachingCalciteSchema and return it as a rootSchema
+        // NOTE - TINY: use .plus() to wrap CalciteSchema instance and return the wrapped instance to expose methods
         SchemaPlus rootSchema = Frameworks.createRootSchema(true);
         HashMap<String, Object> map = new HashMap<>(1);
         String fileName = path.getFileName().toString();

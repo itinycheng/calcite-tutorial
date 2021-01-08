@@ -8,7 +8,7 @@ import org.apache.calcite.util.Source;
 
 import java.nio.file.Files;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -18,17 +18,20 @@ import java.util.Objects;
  */
 public class CsvTable extends AbstractTable {
 
-    private final Source source;
+    protected final Source source;
 
-    private final RelProtoDataType protoDataType;
+    protected final RelProtoDataType protoDataType;
 
-    private Map<String, CsvFieldType> fieldTypeMap;
+    protected Map<String, CsvFieldType> fieldTypeMap;
 
     public CsvTable(Source source, RelProtoDataType protoDataType) {
         this.source = source;
         this.protoDataType = protoDataType;
     }
 
+    /**
+     * return row sql type
+     */
     @Override
     public RelDataType getRowType(RelDataTypeFactory typeFactory) {
         if (protoDataType != null) {
@@ -36,7 +39,7 @@ public class CsvTable extends AbstractTable {
         } else if (fieldTypeMap != null) {
             return deduceRowType(source, typeFactory, null);
         } else {
-            fieldTypeMap = new HashMap<>(16);
+            fieldTypeMap = new LinkedHashMap<>(16);
             return deduceRowType(source, typeFactory, fieldTypeMap);
         }
     }
@@ -54,10 +57,10 @@ public class CsvTable extends AbstractTable {
             String name = arr[0];
             String typeString = arr.length == 2 ? arr[1] : null;
             CsvFieldType csvType;
-            if (typeString == null){
+            if (typeString == null) {
                 csvType = CsvFieldType.STRING;
-            }else {
-                csvType =  CsvFieldType.of(arr[1]);
+            } else {
+                csvType = CsvFieldType.of(arr[1]);
             }
             if (name == null || name.isEmpty() || csvType == null) {
                 throw new RuntimeException("unknown column name or type");
