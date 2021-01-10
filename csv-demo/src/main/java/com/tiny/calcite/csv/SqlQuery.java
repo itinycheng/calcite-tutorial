@@ -61,7 +61,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class SqlQuery {
 
     public static void main(String[] args) throws Exception {
-        String sql = "select abs(t.EMPNO) as square_emp_no, t.JOINTIME from CSV.`DATE` t where abs(t.EMPNO) <= 160";
+        String sql = "select t.EMPNO, t.JOINTIME from CSV.`DATE` t where abs(t.EMPNO) >= 120";
         // "select T1.EMPNO from CSV.\"DATE\" AS T1, CSV.\"LONG_EMPS\" AS T2 "
         // + "where T1.EMPNO = T2.EMPNO AND T1.EMPNO <= 160";
         // sql parser
