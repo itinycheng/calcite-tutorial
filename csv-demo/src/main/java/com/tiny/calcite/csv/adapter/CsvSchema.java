@@ -49,7 +49,8 @@ public class CsvSchema extends AbstractSchema {
     }
 
     private CsvTable newTable(Source source) {
-        return new CsvFilterableTable(source, null);
+        return new CsvTranslatableTable(source, null);
+        // return new CsvFilterableTable(source, null);
     }
 
     @Override

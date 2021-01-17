@@ -158,18 +158,35 @@ public class CsvEnumerator<T> implements Enumerator<T> {
 
         private final List<CsvFieldType> fieldTypes;
 
+        private final int[] fields;
+
         public ArrayRowConverter(List<CsvFieldType> fieldTypes) {
             this.fieldTypes = fieldTypes;
+            this.fields = CsvEnumerator.identityList(fieldTypes.size());
+        }
+
+        public ArrayRowConverter(List<CsvFieldType> fieldTypes, int[] fields) {
+            this.fieldTypes = fieldTypes;
+            this.fields = fields;
         }
 
         @Override
         Object[] convertRow(String[] row) {
-            int len = fieldTypes.size();
-            Object[] objects = new Object[len];
-            for (int i = 0; i < len; i++) {
-                objects[i] = convert(fieldTypes.get(i), row[i]);
+            Object[] objects = new Object[this.fields.length];
+            for (int i = 0; i < fields.length; i++) {
+                int index = fields[i];
+                objects[i] = convert(fieldTypes.get(index), row[index]);
             }
             return objects;
         }
+    }
+
+    public static int[] identityList(int n) {
+        int[] integers = new int[n];
+        int i = 0;
+        while (i < n) {
+            integers[i] = i++;
+        }
+        return integers;
     }
 }
