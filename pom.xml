@@ -5,14 +5,14 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>com.tiny.calcite</groupId>
-    <artifactId>calcite-learning</artifactId>
+    <artifactId>calcite-tutorial</artifactId>
     <packaging>pom</packaging>
     <version>1.0-SNAPSHOT</version>
     <modules>
         <module>csv-demo</module>
     </modules>
 
-    <name>calcite-learning</name>
+    <name>calcite-tutorial</name>
     <!-- FIXME change it to the project's website -->
     <url>http://www.example.com</url>
 
