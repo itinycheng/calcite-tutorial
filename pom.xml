@@ -10,6 +10,7 @@
     <version>1.0-SNAPSHOT</version>
     <modules>
         <module>csv-demo</module>
+        <module>druid-demo</module>
     </modules>
 
     <name>calcite-tutorial</name>

@@ -7,6 +7,7 @@ import org.apache.calcite.DataContext;
 import org.apache.calcite.adapter.enumerable.EnumerableConvention;
 import org.apache.calcite.adapter.enumerable.EnumerableInterpretable;
 import org.apache.calcite.adapter.enumerable.EnumerableRel;
+import org.apache.calcite.adapter.enumerable.EnumerableRules;
 import org.apache.calcite.adapter.java.JavaTypeFactory;
 import org.apache.calcite.jdbc.JavaTypeFactoryImpl;
 import org.apache.calcite.linq4j.Enumerable;
@@ -29,6 +30,8 @@ import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.RelRoot;
 import org.apache.calcite.rel.metadata.DefaultRelMetadataProvider;
 import org.apache.calcite.rel.metadata.RelMetadataProvider;
+import org.apache.calcite.rel.rules.FilterProjectTransposeRule;
+import org.apache.calcite.rel.rules.ProjectFilterTransposeRule;
 import org.apache.calcite.rel.type.RelDataTypeSystem;
 import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.runtime.Bindable;
@@ -60,134 +63,137 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @SuppressWarnings("unchecked")
 public class SqlQuery {
 
-    public static void main(String[] args) throws Exception {
-        String sql = "select t.EMPNO, t.JOINTIME from CSV.`DATE` t where abs(t.EMPNO) >= 120";
-        // "select T1.EMPNO from CSV.\"DATE\" AS T1, CSV.\"LONG_EMPS\" AS T2 "
-        // + "where T1.EMPNO = T2.EMPNO AND T1.EMPNO <= 160";
-        // sql parser
-        SqlParser.Config parserConfig = CalciteUtil.getSqlParserConfig();
-        SqlParser parser = SqlParser.create(sql, parserConfig);
-        SqlNode parsed = parser.parseStmt();
-        System.out.println("-----------------------------------------------------------");
-        System.out.println("The SqlNode after parsed is:\n " + parsed.toString());
+	public static void main(String[] args) throws Exception {
+		String sql = "select t.EMPNO, t.JOINTIME from CSV.`DATE` t where abs(t.EMPNO) >= 120";
+		// "select T1.EMPNO from CSV.\"DATE\" AS T1, CSV.\"LONG_EMPS\" AS T2 "
+		// + "where T1.EMPNO = T2.EMPNO AND T1.EMPNO <= 160";
+		// sql parser
+		SqlParser.Config parserConfig = CalciteUtil.getSqlParserConfig();
+		SqlParser parser = SqlParser.create(sql, parserConfig);
+		SqlNode parsed = parser.parseStmt();
+		System.out.println("-----------------------------------------------------------");
+		System.out.println("The SqlNode after parsed is:\n " + parsed.toString());
 
-        // sql validate
-        Path csvDir = Paths.get("csv-demo/src/main/resources/csv");
-        SchemaPlus rootSchema = CalciteUtil.createRootSchema(csvDir);
-        final FrameworkConfig frameworkConfig = CalciteUtil.getFrameworkConfig(rootSchema, parserConfig);
-        JavaTypeFactoryImpl factory = new JavaTypeFactoryImpl(new CsvDataTypeSystem());
-        CalciteCatalogReader calciteCatalogReader = CalciteUtil.getCatalogReader(rootSchema, factory);
-        SqlValidator validator = SqlValidatorUtil.newValidator(frameworkConfig.getOperatorTable(),
-                calciteCatalogReader,
-                calciteCatalogReader.getTypeFactory(),
-                CalciteUtil.conformance(frameworkConfig));
-        SqlNode validated = validator.validate(parsed);
-        System.out.println("-----------------------------------------------------------");
-        System.out.println("The SqlNode after validated is:\n " + validated.toString());
+		// sql validate
+		Path csvDir = Paths.get("csv-demo/src/main/resources/csv");
+		SchemaPlus rootSchema = CalciteUtil.createRootSchema(csvDir);
+		final FrameworkConfig frameworkConfig = CalciteUtil.getFrameworkConfig(rootSchema, parserConfig);
+		JavaTypeFactoryImpl factory = new JavaTypeFactoryImpl(new CsvDataTypeSystem());
+		CalciteCatalogReader calciteCatalogReader = CalciteUtil.getCatalogReader(rootSchema, factory);
+		SqlValidator validator = SqlValidatorUtil.newValidator(frameworkConfig.getOperatorTable(),
+				calciteCatalogReader,
+				calciteCatalogReader.getTypeFactory(),
+				CalciteUtil.conformance(frameworkConfig));
+		SqlNode validated = validator.validate(parsed);
+		System.out.println("-----------------------------------------------------------");
+		System.out.println("The SqlNode after validated is:\n " + validated.toString());
 
-        // use VolcanoPlanner
-        VolcanoPlanner planner = new VolcanoPlanner();
-        planner.addRelTraitDef(ConventionTraitDef.INSTANCE);
-        planner.addRelTraitDef(RelCollationTraitDef.INSTANCE);
-        // add rules
-        RelOptUtil.registerDefaultRules(planner, true, false);
+		// use VolcanoPlanner
+		VolcanoPlanner planner = new VolcanoPlanner();
+		planner.addRelTraitDef(ConventionTraitDef.INSTANCE);
+		planner.addRelTraitDef(RelCollationTraitDef.INSTANCE);
+		// add rules
+		EnumerableRules.ENUMERABLE_RULES.forEach(planner::addRule);
+		planner.addRule(ProjectFilterTransposeRule.INSTANCE);
+		planner.addRule(FilterProjectTransposeRule.INSTANCE);
+		// RelOptUtil.registerDefaultRules(planner, true, false);
 
-        final RexBuilder rexBuilder = CalciteUtil.createRexBuilder(calciteCatalogReader.getTypeFactory());
-        final RelOptCluster cluster = RelOptCluster.create(planner, rexBuilder);
+		final RexBuilder rexBuilder = CalciteUtil.createRexBuilder(calciteCatalogReader.getTypeFactory());
+		final RelOptCluster cluster = RelOptCluster.create(planner, rexBuilder);
 
-        // init SqlToRelConverter config
-        final SqlToRelConverter.Config config = SqlToRelConverter.configBuilder()
-                .withConfig(frameworkConfig.getSqlToRelConverterConfig())
-                .withTrimUnusedFields(false)
-                .withConvertTableAccess(false)
-                .build();
+		// init SqlToRelConverter config
+		final SqlToRelConverter.Config config = SqlToRelConverter.configBuilder()
+				.withConfig(frameworkConfig.getSqlToRelConverterConfig())
+				.withTrimUnusedFields(false)
+				.withConvertTableAccess(false)
+				.build();
 
-        // SqlNode toRelNode
-        final SqlToRelConverter sqlToRelConverter = new SqlToRelConverter(new ViewExpanderImpl(),
-                validator, calciteCatalogReader, cluster, frameworkConfig.getConvertletTable(), config);
-        RelRoot root = sqlToRelConverter.convertQuery(validated, false, true);
+		// SqlNode toRelNode
+		final SqlToRelConverter sqlToRelConverter = new SqlToRelConverter(new ViewExpanderImpl(),
+				validator, calciteCatalogReader, cluster, frameworkConfig.getConvertletTable(), config);
+		RelRoot root = sqlToRelConverter.convertQuery(validated, false, true);
 
-        //tiny note: replace LogicalTableScan to CsvTableScan, impl this by invoke CsvTranslatableTable.toRel
-        root = root.withRel(sqlToRelConverter.flattenTypes(root.rel, true));
-        final RelBuilder relBuilder = config.getRelBuilderFactory().create(cluster, null);
-        root = root.withRel(RelDecorrelator.decorrelateQuery(root.rel, relBuilder));
-        RelNode relNode = root.rel;
-        System.out.println("-----------------------------------------------------------");
-        System.out.println("The relational expression string before optimized is:\n " + RelOptUtil.toString(relNode));
+		//tiny note: replace LogicalTableScan to CsvTableScan, impl this by invoke CsvTranslatableTable.toRel
+		root = root.withRel(sqlToRelConverter.flattenTypes(root.rel, true));
+		final RelBuilder relBuilder = config.getRelBuilderFactory().create(cluster, null);
+		root = root.withRel(RelDecorrelator.decorrelateQuery(root.rel, relBuilder));
+		RelNode relNode = root.rel;
+		System.out.println("-----------------------------------------------------------");
+		System.out.println("The relational expression string before optimized is:\n " + RelOptUtil.toString(relNode));
 
-        // replace and cache TraitSet
-        RelTraitSet desiredTraits = relNode.getCluster().traitSet().replace(EnumerableConvention.INSTANCE);
-        // create RelSet & RelSubset and init Cost, wrapped RelNode with RelSet/SubRelSet, put desiredTraits to outside RelSubSet
-        // put matched Rules to volcanoPlanner.ruleQueue, it will be used for relNode optimize
-        relNode = planner.changeTraits(relNode, desiredTraits);
+		// replace and cache TraitSet
+		RelTraitSet desiredTraits = relNode.getCluster().traitSet().replace(EnumerableConvention.INSTANCE);
+		// create RelSet & RelSubset and init Cost, wrapped RelNode with RelSet/SubRelSet, put desiredTraits to outside RelSubSet
+		// put matched Rules to volcanoPlanner.ruleQueue, it will be used for relNode optimize
+		relNode = planner.changeTraits(relNode, desiredTraits);
 
-        planner.setRoot(relNode);
-        relNode = planner.findBestExp();
-        System.out.println("-----------------------------------------------------------");
-        System.out.println("The Best relational expression string:\n " + RelOptUtil.toString(relNode));
+		planner.setRoot(relNode);
+		relNode = planner.findBestExp();
+		System.out.println("-----------------------------------------------------------");
+		System.out.println("The Best relational expression string:\n " + RelOptUtil.toString(relNode));
 
-        final HepProgramBuilder builder = HepProgram.builder();
-        for (RelOptRule rule : RelOptRules.CALC_RULES) {
-            builder.addRuleInstance(rule);
-        }
-        HepPlanner hepPlanner = new HepPlanner(builder.build(),
-                null, true, null, RelOptCostImpl.FACTORY);
-        List<RelMetadataProvider> objects = new ArrayList<>();
-        objects.add(DefaultRelMetadataProvider.INSTANCE);
-        hepPlanner.registerMetadataProviders(objects);
-        hepPlanner.setRoot(relNode);
-        relNode = hepPlanner.findBestExp();
-        System.out.println("-----------------------------------------------------------");
-        System.out.println("The Best relational expression string optimized by HepPlanner:\n "
-                + RelOptUtil.toString(relNode));
+		final HepProgramBuilder builder = HepProgram.builder();
+		for (RelOptRule rule : RelOptRules.CALC_RULES) {
+			builder.addRuleInstance(rule);
+		}
+		HepPlanner hepPlanner = new HepPlanner(builder.build(),
+				null, true, null, RelOptCostImpl.FACTORY);
+		List<RelMetadataProvider> objects = new ArrayList<>();
+		objects.add(DefaultRelMetadataProvider.INSTANCE);
+		hepPlanner.registerMetadataProviders(objects);
+		hepPlanner.setRoot(relNode);
+		relNode = hepPlanner.findBestExp();
+		System.out.println("-----------------------------------------------------------");
+		System.out.println("The Best relational expression string optimized by HepPlanner:\n "
+				+ RelOptUtil.toString(relNode));
 
-        EnumerableRel enumerable = (EnumerableRel) relNode;
-        Map<String, Object> parameters = new LinkedHashMap<>();
-        parameters.put("_conformance", SqlConformanceEnum.DEFAULT);
-        parameters.put(DataContext.Variable.CANCEL_FLAG.camelName, new AtomicBoolean());
-        // tiny note: call implement method in enumerable node to generate code.
-        // in other words, each RelNode's implement method must be implemented.
-        Bindable bindable = EnumerableInterpretable.toBindable(parameters,
-                null, enumerable, EnumerableRel.Prefer.ARRAY);
+		EnumerableRel enumerable = (EnumerableRel) relNode;
+		Map<String, Object> parameters = new LinkedHashMap<>();
+		parameters.put("_conformance", SqlConformanceEnum.DEFAULT);
+		parameters.put(DataContext.Variable.CANCEL_FLAG.camelName, new AtomicBoolean());
+		// tiny note: call implement method in enumerable node to generate code.
+		// in other words, each RelNode's implement method must be implemented.
+		Bindable bindable = EnumerableInterpretable.toBindable(parameters,
+				null, enumerable, EnumerableRel.Prefer.ARRAY);
 
-        Enumerable enumerator = bindable.bind(new MyDataContext(parameters, rootSchema));
-        Enumerable<Object[]> iterable = EnumerableDefaults.take(enumerator, 3);
-        iterable.forEach(o -> System.out.println(o[0]));
+		Enumerable enumerator = bindable.bind(new MyDataContext(parameters, rootSchema));
+		Enumerable<Object[]> iterable = EnumerableDefaults.take(enumerator, 3);
+		iterable.forEach(o -> System.out.println(o[0]));
 
-    }
+	}
 
-    private static class MyDataContext implements DataContext {
-        private final Map<String, Object> parameters;
+	private static class MyDataContext implements DataContext {
+		private final Map<String, Object> parameters;
 
-        private final SchemaPlus rootSchema;
+		private final SchemaPlus rootSchema;
 
-        MyDataContext(Map<String, Object> parameters, SchemaPlus rootSchema) {
-            this.parameters = parameters;
-            this.rootSchema = rootSchema;
-        }
+		MyDataContext(Map<String, Object> parameters, SchemaPlus rootSchema) {
+			this.parameters = parameters;
+			this.rootSchema = rootSchema;
+		}
 
-        @Override
-        public SchemaPlus getRootSchema() {
-            return rootSchema;
-        }
+		@Override
+		public SchemaPlus getRootSchema() {
+			return rootSchema;
+		}
 
-        @Override
-        public JavaTypeFactory getTypeFactory() {
-            return new JavaTypeFactoryImpl(RelDataTypeSystem.DEFAULT);
-        }
+		@Override
+		public JavaTypeFactory getTypeFactory() {
+			return new JavaTypeFactoryImpl(RelDataTypeSystem.DEFAULT);
+		}
 
-        @Override
-        public QueryProvider getQueryProvider() {
-            return null;
-        }
+		@Override
+		public QueryProvider getQueryProvider() {
+			return null;
+		}
 
-        @Override
-        public Object get(String name) {
-            return parameters.get(name);
-        }
-    }
+		@Override
+		public Object get(String name) {
+			return parameters.get(name);
+		}
+	}
 
-    //===========bindable===========
+	//===========bindable===========
     /*if (resultConvention == BindableConvention.INSTANCE) {
         bindable = Interpreters.bindable(root.rel);
         bindable.bind(context);
